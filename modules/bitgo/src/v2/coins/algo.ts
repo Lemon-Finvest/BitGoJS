@@ -5,7 +5,7 @@ import * as accountLib from '@bitgo/account-lib';
 import * as utxolib from '@bitgo/utxo-lib';
 import * as _ from 'lodash';
 import { SeedValidator } from '../internal/seedValidator';
-import { CoinFamily } from '@bitgo/statics';
+import { CoinFamily, coins } from '@bitgo/statics';
 
 import {
   AddressCoinSpecific,
@@ -241,6 +241,11 @@ export class Algo extends BaseCoin {
     return [KeyIndices.USER, KeyIndices.BACKUP, KeyIndices.BITGO];
   }
 
+  getTokenNameById(tokenId: number | string): string {
+    const tokenNames = coins.filter((coin) => coin.family === 'algo' && coin.isToken).map(({ name }) => name!);
+    return tokenNames.find((tokenName) => tokenName.split('-')[1] === `${tokenId}`) || 'AlgoToken unknown';
+  }
+
   /**
    * Explain/parse transaction
    * @param params
@@ -277,7 +282,7 @@ export class Algo extends BaseCoin {
         );
         operations.push({
           type: type,
-          coin: `${this.getChain()}:${txJson.tokenId}`,
+          coin: this.getTokenNameById(txJson.tokenId),
         });
       }
 
