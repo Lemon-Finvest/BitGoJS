@@ -12,6 +12,7 @@ export interface TxData {
   memo?: string;
   to?: string;
   amount?: string;
+  tokenName?: string;
 }
 
 export interface HederaNode {

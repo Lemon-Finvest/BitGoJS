@@ -14,9 +14,9 @@ import { Transaction } from './transaction';
 import { isValidAddress, isValidAmount, stringifyAccountId } from './utils';
 
 export class TransferBuilder extends TransactionBuilder {
-  private _txBodyData: proto.CryptoTransferTransactionBody;
-  private _toAddress: string;
-  private _amount: string;
+  protected _txBodyData: proto.CryptoTransferTransactionBody;
+  protected _toAddress: string;
+  protected _amount: string;
 
   constructor(_coinConfig: Readonly<CoinConfig>) {
     super(_coinConfig);
@@ -25,8 +25,10 @@ export class TransferBuilder extends TransactionBuilder {
   }
 
   /** @inheritdoc */
-  protected async buildImplementation(): Promise<Transaction> {
-    this._txBodyData.transfers = this.buildTransferData();
+  protected async buildImplementation(isToken = false): Promise<Transaction> {
+    if (!isToken) {
+      this._txBodyData.transfers = this.buildTransferData();
+    }
     this.transaction.setTransactionType(TransactionType.Send);
     return await super.buildImplementation();
   }
@@ -40,7 +42,7 @@ export class TransferBuilder extends TransactionBuilder {
     };
   }
 
-  private buildAccountData(address: string): proto.AccountID {
+  protected buildAccountData(address: string): proto.AccountID {
     const accountData = AccountId.fromString(address);
     return new proto.AccountID({
       accountNum: accountData.num,
@@ -50,11 +52,11 @@ export class TransferBuilder extends TransactionBuilder {
   }
 
   /** @inheritdoc */
-  initBuilder(tx: Transaction): void {
+  initBuilder(tx: Transaction, isToken = false): void {
     super.initBuilder(tx);
     this.transaction.setTransactionType(TransactionType.Send);
     const transferData = tx.txBody.cryptoTransfer;
-    if (transferData && transferData.transfers && transferData.transfers.accountAmounts) {
+    if (!isToken && transferData && transferData.transfers && transferData.transfers.accountAmounts) {
       this.initTransfers(transferData.transfers.accountAmounts);
     }
   }

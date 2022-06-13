@@ -7,7 +7,7 @@ import * as nacl from 'tweetnacl';
 import * as Long from 'long';
 import { proto } from '../../../resources/hbar/protobuf/hedera';
 import { TxData } from './ifaces';
-import { stringifyAccountId, stringifyTxTime } from './utils';
+import { stringifyAccountId, stringifyTxTime, stringifyTokenId, getHbarTokenFromId } from './utils';
 import { KeyPair } from './';
 
 export class Transaction extends BaseTransaction {
@@ -72,9 +72,10 @@ export class Transaction extends BaseTransaction {
     };
 
     if (this._txBody.data === 'cryptoTransfer') {
-      const [recipient, amount] = this.getTransferData();
+      const [recipient, amount, tokenName] = this.getTransferData();
       result.amount = amount;
       result.to = recipient;
+      result.tokenName = tokenName;
     }
     return result;
   }
@@ -83,16 +84,33 @@ export class Transaction extends BaseTransaction {
    * Get the recipient account and the amount
    * transferred on this transaction
    *
-   * @returns {[string, string]} first element is the recipient, second element is the amount
+   * @returns {[string, string, string]} first element is the recipient, second element is the amount, third recipient is token name
    */
-  private getTransferData(): [string, string] {
+  private getTransferData(): [string, string, string] {
     let transferData;
-    this._txBody.cryptoTransfer!.transfers!.accountAmounts!.forEach((transfer) => {
-      const amount = Long.fromValue(transfer.amount!);
-      if (amount.isPositive()) {
-        transferData = [stringifyAccountId(transfer.accountID!), amount.toString()];
-      }
-    });
+    const tokenTransactions: proto.ITokenTransferList[] = this._txBody.cryptoTransfer?.tokenTransfers || [];
+    if (tokenTransactions && tokenTransactions.length > 0) {
+      const tokenTransfers: proto.IAccountAmount[] = tokenTransactions[0].transfers || [];
+      tokenTransfers.forEach((transfer) => {
+        const amount = Long.fromValue(transfer.amount!);
+        const tokenId = stringifyTokenId(tokenTransactions[0].token!);
+        if (amount.isPositive()) {
+          transferData = [
+            stringifyAccountId(transfer.accountID!),
+            amount.toString(),
+            getHbarTokenFromId(tokenId, this._coinConfig.network)?.name,
+          ];
+        }
+      });
+    } else {
+      const accountAmounts: proto.IAccountAmount[] = this._txBody.cryptoTransfer?.transfers?.accountAmounts || [];
+      accountAmounts.forEach((transfer) => {
+        const amount = Long.fromValue(transfer.amount!);
+        if (amount.isPositive()) {
+          transferData = [stringifyAccountId(transfer.accountID!), amount.toString(), undefined];
+        }
+      });
+    }
 
     return transferData;
   }
@@ -155,7 +173,7 @@ export class Transaction extends BaseTransaction {
         {
           address: txJson.to,
           value: txJson.amount,
-          coin: this._coinConfig.name,
+          coin: txJson.tokenName || this._coinConfig.name,
         },
       ];
 
@@ -163,7 +181,7 @@ export class Transaction extends BaseTransaction {
         {
           address: txJson.from,
           value: txJson.amount,
-          coin: this._coinConfig.name,
+          coin: txJson.tokenName || this._coinConfig.name,
         },
       ];
     }

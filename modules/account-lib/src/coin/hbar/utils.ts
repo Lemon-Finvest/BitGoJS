@@ -6,6 +6,8 @@ import { proto } from '../../../resources/hbar/protobuf/hedera';
 import { AddressDetails } from './ifaces';
 import url from 'url';
 import { toHex, toUint8Array, UtilsError } from '@bitgo/sdk-core';
+import { BaseCoin, BaseNetwork, CoinNotDefinedError, coins, HederaToken } from '@bitgo/statics';
+import assert from 'assert';
 export { toHex, toUint8Array };
 
 const MAX_TINYBARS_AMOUNT = new BigNumber(2).pow(63).minus(1);
@@ -46,6 +48,26 @@ export function isValidTransactionId(txId: string): boolean {
       return false;
     }
     return !_.isNaN(tx.accountId.num);
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Returns whether or not the string is a valid Hedera token id.
+ *
+ * In any form, `shard` and `realm` are assumed to be 0 if not provided.
+ *
+ * @param {string} tokenId - the address to be validated
+ * @returns {boolean} - the validation result
+ */
+export function isValidToken(tokenId: string, network: BaseNetwork): boolean {
+  if (_.isEmpty(tokenId) || !tokenId.match(/^[0-9]+(?:(?=\.)(\.[0-9]+){2}|(?!\.))$/)) {
+    return false;
+  }
+  try {
+    const token = getHbarTokenFromId(tokenId, network);
+    return token !== undefined;
   } catch (e) {
     return false;
   }
@@ -100,7 +122,7 @@ export function getCurrentTime(): string {
  * @param {string} time - the timestamp to be validated
  * @returns {boolean} the validation result
  */
-export function isValidTimeString(time: string) {
+export function isValidTimeString(time: string): boolean {
   return /^[0-9]+(\.[0-9]+)?$/.test(time);
 }
 
@@ -143,6 +165,16 @@ export function isValidRawTransactionFormat(rawTransaction: any): boolean {
  */
 export function stringifyAccountId({ shardNum, realmNum, accountNum }: proto.IAccountID): string {
   return `${shardNum || 0}.${realmNum || 0}.${accountNum}`;
+}
+
+/**
+ * Returns a string representation of an {proto.ITokenID} object
+ *
+ * @param {proto.ITokenID} - token id to be cast to string
+ * @returns {string} - the string representation of the {proto.ITokenID}
+ */
+export function stringifyTokenId({ shardNum, realmNum, tokenNum }: proto.ITokenID): string {
+  return `${shardNum || 0}.${realmNum || 0}.${tokenNum}`;
 }
 
 /**
@@ -288,5 +320,57 @@ export function isValidAddressWithPaymentId(address: string): boolean {
     return address === normalizeAddress(addressDetails);
   } catch (e) {
     return false;
+  }
+}
+
+/**
+ * Return boolean indicating whether input is a valid address with memo id
+ *
+ * @param {string} address address in the form <address>?memoId=<memoId>
+ * @returns {boolean} true is input is a valid address
+ */
+export function isTokenTransfer(transferTxBody: proto.ICryptoTransferTransactionBody): boolean {
+  return transferTxBody.tokenTransfers !== undefined && transferTxBody.tokenTransfers!.length > 0;
+}
+
+/**
+ * Get the statics coin object matching a given Hbar token id if it exists
+ *
+ * @param tokenId The token address to match against
+ * @param network Hbar Mainnet or Testnet
+ * @returns statics BaseCoin object for the matching token
+ */
+export function getHbarTokenFromId(tokenId: string, network: BaseNetwork): Readonly<BaseCoin> | undefined {
+  const tokens = coins.filter((coin) => {
+    if (coin instanceof HederaToken) {
+      return coin.network.type === network.type && coin.tokenId === tokenId;
+    }
+    return false;
+  });
+  const tokensArray = tokens.map((token) => token);
+  if (tokensArray.length >= 1) {
+    // there should never be two tokens with the same contract address, so we assert that here
+    assert(tokensArray.length === 1);
+    return tokensArray[0];
+  }
+  return undefined;
+}
+
+/**
+ * Get the Hbar token object from token name
+ * @param tokenName The token name to match against
+ * */
+export function getHbarTokenFromTokenName(tokenName: string): Readonly<HederaToken> | undefined {
+  try {
+    const token = coins.get(tokenName);
+    if (!(token.isToken && token instanceof HederaToken)) {
+      return undefined;
+    }
+    return token;
+  } catch (e) {
+    if (!(e instanceof CoinNotDefinedError)) {
+      throw e;
+    }
+    return undefined;
   }
 }

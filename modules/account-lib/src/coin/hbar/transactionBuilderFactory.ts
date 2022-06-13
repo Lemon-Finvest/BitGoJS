@@ -4,7 +4,8 @@ import { WalletInitializationBuilder } from './walletInitializationBuilder';
 import { TransferBuilder } from './transferBuilder';
 import { TransactionBuilder } from './transactionBuilder';
 import { Transaction } from './transaction';
-import { isValidRawTransactionFormat, toUint8Array } from './utils';
+import { isTokenTransfer, isValidRawTransactionFormat, toUint8Array } from './utils';
+import { TokenTransferBuilder } from './tokenTransferBuilder';
 
 export class TransactionBuilderFactory extends BaseTransactionBuilderFactory {
   constructor(_coinConfig: Readonly<CoinConfig>) {
@@ -22,11 +23,19 @@ export class TransactionBuilderFactory extends BaseTransactionBuilderFactory {
   }
 
   /** @inheritDoc */
+  getTokenTransferBuilder(tx?: Transaction): TokenTransferBuilder {
+    return this.initializeBuilder(tx, new TokenTransferBuilder(this._coinConfig));
+  }
+
+  /** @inheritDoc */
   from(raw: Uint8Array | string): TransactionBuilder {
     this.validateRawTransaction(raw);
     const tx = this.parseTransaction(raw);
     switch (tx.txBody.data) {
       case 'cryptoTransfer':
+        if (tx.txBody.cryptoTransfer && isTokenTransfer(tx.txBody.cryptoTransfer)) {
+          return this.getTokenTransferBuilder(tx);
+        }
         return this.getTransferBuilder(tx);
       case 'cryptoCreateAccount':
         return this.getWalletInitializationBuilder(tx);
