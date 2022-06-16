@@ -5,6 +5,7 @@ import { Ecdsa } from '@bitgo/sdk-core';
 
 describe('TSS ECDSA key generation', function () {
   const MPC = new Ecdsa();
+  const base = BigInt('0x010000000000000000000000000000000000000000000000000000000000000000'); // 2^256
   it('should generate keys with correct threshold and share number', async function () {
     this.timeout(50000);
     const [A, B, C] = await Promise.all([MPC.keyShare(1, 2, 3), MPC.keyShare(2, 2, 3), MPC.keyShare(3, 2, 3)]);
@@ -24,7 +25,10 @@ describe('TSS ECDSA key generation', function () {
       keyShares[index].xShare.m.should.not.be.Null;
       keyShares[index].xShare.l.should.not.be.Null;
       keyShares[index].xShare.n.should.not.be.Null;
-      keyShares[index].xShare.chaincode.should.not.be.Null;
+
+      const chaincode = BigInt('0x' + keyShares[index].xShare.chaincode);
+      const isChainCodeValid = chaincode > BigInt(0) && chaincode <= base;
+      isChainCodeValid.should.equal(true);
 
       keyShares[index].yShares[participantTwo].i.should.equal(participantOne);
       keyShares[index].yShares[participantThree].i.should.equal(participantOne);
