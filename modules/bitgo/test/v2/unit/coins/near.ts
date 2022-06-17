@@ -7,6 +7,8 @@ import { rawTx, accounts, validatorContractAddress, blockHash } from '../../fixt
 import * as _ from 'lodash';
 import * as sinon from 'sinon';
 import { Near } from '../../../../src/v2/coins/near';
+import { Eos } from '../../../../src/v2/coins';
+import { EosResponses } from '../../fixtures/coins/eos';
 
 describe('NEAR:', function () {
   let bitgo;
@@ -697,4 +699,52 @@ describe('NEAR:', function () {
       });
     });
   });
+  describe('Recover Transactions:', () => {
+
+    it('should recover a txn for non-bitgo recoveries', async function () {
+      const userKey = '{"iv":"I8cx17GV2qZ9HKF5ITZS4g==","v":1,"iter":10000,"ks":256,"ts":64,"mode"\n' +
+        ':"ccm","adata":"","cipher":"aes","salt":"0k+79wgoUDU=","ct":"adpZXywRNHhLMI\n' +
+        'IDae6KoQh6XmyNIslINE7aTd/9khp1/mu4uioKrJl0fAWC4+DdWWrEOiXKipX9yqvB5udWTDfaW\n' +
+        'nM+ySG15MQ0Qrx0k1TqsDaYFFtQaNv64BV1nmOJrrT6gp5TRq3nxssgLnwdDJl8JvuSHplCxwKF\n' +
+        'PynXTyZuVQ7mxMoruGnqHRrOf+9gS5xUySH/QKf1C8RpA0QZDlGcJS6i7bhAk894x694EYZu37q\n' +
+        'V2mWs/oPtWMFAscFUNReSUcHu2rWV546/spJLog7d891Hq/Dq5aVxOYJkZmwLnFOc2Rz1qmz5s+\n' +
+        'ExlXaDoGphVVYgq4Lhm6HQ4zKDCqo8oIPWGLCG437mTU1axmMPLNcDOEXqSfHLOhiOPgDS9YrYJ\n' +
+        'EPAfiEfE3tR7SfqLMy9kwNmDM86EtPmoZcYEDHhz3oaVwT07+wwRH63cTGdPOlg8FusfBqFh8Ob\n' +
+        '2molhY6JdLeH1jc42rs0/GNWIH/kcm+LVAWqLRvax5nVCBMreKj1EfvsBADfUdXoIotRs1wqixO\n' +
+        'D1p1PgRNJKBP4t7j2OXaij7FyKz6LU8dC6FcWvGAxkBeB5Lgo8GG/AaSMWwJY6eRTV8wBCsj9TL\n' +
+        'M9+dhvZdQSvBGlstWgLLk1bPuAlNabOdnDmJa+IavKafaiP8LYCrfKaBZ2/ogC+aEvipEEOCk0J\n' +
+        'h+A/PBcwl3Z+oPBzKNVvox0Cvp6rCUjuRVaH/TcoijASQ9DK0c8Kz2bc1BzAUJYGag1JngHsPbw\n' +
+        'T41oifOVevJeVfl8Fe5M7UPGUyNm7Khu/l8pg25rO7n0MfIjgnyFVOZ/2aeZFy4ww/Ix1GLRLkS\n' +
+        '6VvlY2Bh6yhn0mFMIJPWZsUHVfbxuPpD2tPPufULiIXx/r/09HBlJp420GggTVIiMh9zXrek0vz\n' +
+        'Mb/dfAnqX2msIF//R8LjsVBu9SRdDlqbJW3vviX1rw1XRT8Bpg5ieSWz8uVt7dzYzzsMwi8YwaA\n' +
+        'FynwFHzi1aymP1gAyklubtcw8A="}';
+      const backupKey = '{"iv":"lbXgY5IYb9z3gwuYsD6oJA==","v":1,"iter":10000,"ks":256,"ts":64,"mode"\n' +
+        ':"ccm","adata":"","cipher":"aes","salt":"Wg9AcOhVCWQ=","ct":"YeJOJDQ6f/rc0D\n' +
+        'nlsXyLYc6qhTITyEkZyFmt4X7TFMoG4otdVdx/wh+ieC/lssAgooqwyiW056QGFNCTIMbEI/zSm\n' +
+        'rS362hQx9QK49Eadkc5pO2Qfm/EXlYAAi/hFe2q8tk4IU+CAowW7QcyJ5NMIb+J2ImqGKxgROC9\n' +
+        '4M4/ZxXTtbkalEVtwAF0Pyui8O0p+JHA/Q1D+9yPl3SfXu6D/GYV+RcmMtgae+wQYuIdx7fxGQk\n' +
+        'EqMy9NfewKK/T+2SLpqYwED3C6OtMOM2URkPpU72KmRUzZllxk1/oLFVcHycLTd68qyfQr7QN2f\n' +
+        '8pKKvq7VdbLBS+VIcTbSFpO6WPJrEt/oUqQ8E3FLCQ7sAkZe6NNzyREJ5Ci/xCvnEAmeJz04kiR\n' +
+        'qE4XGYpqObUhMHjfl80T2fxE66xdgCrbUfhPsQhmmJly8q1gFln3I6UJ+szXN4F0WAqx2SupHFy\n' +
+        '/JcGhyquq7b/+AXth3fFGdI3xL5x9ygMyCndUyk6bie8DWgtc6UW/a5Hz7FDNh7r2SujF0gHDut\n' +
+        'yI7ff9qRfSTqf75YI3vkhqJp3O+LNiQpuTqpwPCTNl92FnAtcdEAw3V6QQXEe+rPlUeJbym1Qa/\n' +
+        'cNHT0HGxd9/Yqd635CjhH2xUK4I2NyTaRvoNQh9PLUMVL/UqHRbL+AOTn7deVGRMBTf2GtfJcnV\n' +
+        'cvtopuik+MlhceDu2SIwIgWbvXApV6drBnX8W7HPczcIi5O/IH2XawXIvSV6JsVxXeYY/KUsfih\n' +
+        '+RK4Qs5x8kZHyjl3vuFBEL4tWaKyc3A1zt375+3PUsDUMR+wyP3ANzXsgxpvzOVX/KFP709Mp0v\n' +
+        'YJyctc/N1XD/RZ2xj6bha6ybsFUiNfT3v83+dKSMLUKzDe0IDqoC/XgYpo89z0zyFG4jpnVqUHz\n' +
+        'hxrDtsDch1fFf/4B4xm8uGfDNcc0f5O+8eAzzmy/Kat79i9V1xCAE8gn7mAZILkzLnSbD1JyXaG\n' +
+        '5NK0trXhDQqFp7Gt6zYv6aG"}';
+      const bitgoKey = '8699d2e05d60a3f7ab733a74ccf707f3407494b60f4253616187f5262e20737519a1763de0b\n' +
+        'cc4d165a7fa0e4dde67a1426ec4cc9fcd0820d749e6589dcfa08e';
+      const unsignedRecoveryTransaction = await basecoin.recover({
+        userKey,
+        backupKey,
+        bitgoKey,
+        recoveryDestination: 'abhay-near.testnet',
+        walletPassphrase: 'Ghghjkg!455544llll'
+      });
+    });
+  });
 });
+
+

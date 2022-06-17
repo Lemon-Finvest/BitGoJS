@@ -20,7 +20,15 @@ import {
   TransactionExplanation,
   VerifyAddressOptions,
   VerifyTransactionOptions,
+  Ed25519BIP32,
+  Eddsa,
+  PublicKey,
 } from '@bitgo/sdk-core';
+import * as nearAPI from 'near-api-js';
+
+require('dotenv').config();
+import { SigningMaterial } from '../../../../sdk-core/src';
+import { NearGasConfigs } from '../../config';
 
 export interface SignTransactionOptions extends BaseSignTransactionOptions {
   txPrebuild: TransactionPrebuild;
@@ -270,12 +278,176 @@ export class Near extends BaseCoin {
     } as any;
   }
 
+  async signWithTSS(userSigningMaterial, backupSigningMaterial, path = 'm/0', transaction) {
+    const hdTree = await Ed25519BIP32.initialize();
+    const MPC = await Eddsa.initialize(hdTree);
+    const user_combine = MPC.keyCombine(userSigningMaterial.uShare, [
+      userSigningMaterial.bitgoYShare,
+      userSigningMaterial.backupYShare,
+    ]);
+    const backup_combine = MPC.keyCombine(backupSigningMaterial.uShare, [
+      backupSigningMaterial.bitgoYShare,
+      backupSigningMaterial.userYShare,
+    ]);
+
+    // Party A derives subkey P share and new Y shares.
+    const user_subkey = MPC.keyDerive(
+      userSigningMaterial.uShare,
+      [userSigningMaterial.bitgoYShare, userSigningMaterial.backupYShare],
+      path
+    );
+
+    // Party B calculates new P share using party A's subkey Y shares.
+    const backup_subkey = MPC.keyCombine(backupSigningMaterial.uShare, [
+      user_subkey.yShares[2],
+      backupSigningMaterial.bitgoYShare,
+    ]);
+
+    const message_buffer = Buffer.from(transaction.signablePayload, 'hex');
+    // Signing with A and B using subkey P shares.
+    const user_sign_share = MPC.signShare(message_buffer, user_subkey.pShare, [user_combine.jShares[2]]);
+    const backup_sign_share = MPC.signShare(message_buffer, backup_subkey.pShare, [backup_combine.jShares[1]]);
+    const user_sign = MPC.sign(
+      message_buffer,
+      user_sign_share.xShare,
+      [backup_sign_share.rShares[1]],
+      [userSigningMaterial.bitgoYShare]
+    );
+    const backup_sign = MPC.sign(
+      message_buffer,
+      backup_sign_share.xShare,
+      [user_sign_share.rShares[2]],
+      [backupSigningMaterial.bitgoYShare]
+    );
+    const signature = MPC.signCombine([user_sign, backup_sign]);
+    const result = MPC.verify(message_buffer, signature);
+    result.should.equal(true);
+    const rawSignature = Buffer.concat([Buffer.from(signature.R, 'hex'), Buffer.from(signature.sigma, 'hex')]);
+    return rawSignature;
+  }
+
   /**
    * Builds a funds recovery transaction without BitGo
    * @param params
    */
   async recover(params: any): Promise<any> {
-    throw new MethodNotImplementedError('Near recovery not implemented');
+    if (_.isUndefined(params.userKey)) {
+      throw new Error('missing userKey');
+    }
+
+    if (_.isUndefined(params.backupKey)) {
+      throw new Error('missing backupKey');
+    }
+
+    if (_.isUndefined(params.bitgoKey)) {
+      throw new Error('missing backupKey');
+    }
+
+    if (_.isUndefined(params.walletPassphrase) && !params.userKey.startsWith('xpub')) {
+      throw new Error('missing wallet passphrase');
+    }
+
+    if (_.isUndefined(params.recoveryDestination) || !this.isValidAddress(params.recoveryDestination)) {
+      throw new Error('invalid recoveryDestination');
+    }
+    const keyStore = new nearAPI.keyStores.InMemoryKeyStore();
+    const config = {
+      keyStore,
+      networkId: 'testnet',
+      nodeUrl: 'https://rpc.testnet.near.org',
+    };
+
+    // Clean up whitespace from entered values
+    const userKey = params.userKey.replace(/\s/g, '');
+    const backupKey = params.backupKey.replace(/\s/g, '');
+    const bitgoKey = params.bitgoKey.replace(/\s/g, '');
+
+    // Decrypt private keys from KeyCard values
+    let userPrv;
+    if (!userKey.startsWith('xpub') && !userKey.startsWith('xprv')) {
+      try {
+        userPrv = this.bitgo.decrypt({
+          input: userKey,
+          password: params.walletPassphrase,
+        });
+      } catch (e) {
+        throw new Error(`Error decrypting user keychain: ${e.message}`);
+      }
+    }
+    const userSigningMaterial = JSON.parse(userPrv) as SigningMaterial;
+
+    let backupPrv;
+    try {
+      backupPrv = this.bitgo.decrypt({
+        input: backupKey,
+        password: params.walletPassphrase,
+      });
+    } catch (e) {
+      throw new Error(`Error decrypting backup keychain: ${e.message}`);
+    }
+    const backupSigningMaterial = JSON.parse(backupPrv) as SigningMaterial;
+    // TODO: use common implementation of deriveUnhardened
+    const publicKey = await this.deriveUnhardened(bitgoKey, `m/0`);
+    const bs58EncodeedPublicKey = nearAPI.utils.serialize.base_encode(new Uint8Array(Buffer.from(publicKey, 'hex')));
+
+    const provider = new nearAPI.providers.JsonRpcProvider(`https://rpc.testnet.near.org`);
+    const accessKey = await provider.query(`access_key/${publicKey}/${bs58EncodeedPublicKey}`, '');
+
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    const nonce = ++accessKey.nonce;
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    const near = await nearAPI.connect(config);
+    const account = await near.account(publicKey);
+    const balance = await account.getAccountBalance();
+    const gasPrice = await near.connection.provider.gasPrice(accessKey.block_hash);
+    const gasPriceFirstBlock = new BigNumber(gasPrice.gas_price);
+    const gasPriceSecondBlock = gasPriceFirstBlock.multipliedBy(1.05);
+    console.log('balance: ', balance);
+    console.log('gas: ', gasPriceFirstBlock);
+    const { transfer_cost, action_receipt_creation_config } = NearGasConfigs;
+    const totalGasRequired = transfer_cost.send_sir
+      .plus(action_receipt_creation_config.send_sir)
+      .multipliedBy(gasPriceFirstBlock)
+      .plus(transfer_cost.execution.plus(action_receipt_creation_config.execution).multipliedBy(gasPriceSecondBlock));
+    // adding some padding to make sure the gas doesn't go below required gas by network
+    const totalGasWithPadding = totalGasRequired.multipliedBy(1.5);
+    console.log('totalGas: ', totalGasWithPadding);
+    const accontBalance = new BigNumber(balance.available);
+    const netAmount = accontBalance.minus(totalGasWithPadding).toFixed();
+    const factory = accountLib.register('tnear', accountLib.Near.TransactionBuilderFactory);
+
+    const txBuilder = factory
+      .getTransferBuilder()
+      .sender(publicKey, publicKey)
+      .nonce(nonce)
+      .receiverId(params.recoveryDestination)
+      .recentBlockHash(accessKey.block_hash)
+      .amount(netAmount);
+    const unsignedTransaction = await txBuilder.build();
+    const serializedTxHex = Buffer.from(unsignedTransaction.toBroadcastFormat(), 'base64').toString('hex');
+
+    // add signature
+    const txBuilder2 = factory.from(Buffer.from(serializedTxHex, 'hex').toString('base64'));
+    const signatureHex = await this.signWithTSS(userSigningMaterial, backupSigningMaterial, 'm/0', unsignedTransaction);
+    const publicKeyObj = { pub: publicKey };
+    txBuilder2.addSignature(publicKeyObj as PublicKey, signatureHex);
+    const signedTransaction = await txBuilder2.build();
+    const serializedTx = signedTransaction.toBroadcastFormat();
+
+    console.log('send', serializedTx);
+    const result = await provider.sendJsonRpc('broadcast_tx_commit', [serializedTx]);
+    console.log(result);
+
+    return signedTransaction;
+  }
+
+  async deriveUnhardened(commonKeychain: string, path: string): Promise<string> {
+    await Ed25519BIP32.initialize();
+    await Eddsa.initialize();
+    const mpc = new Eddsa(new Ed25519BIP32());
+    return mpc.deriveUnhardened(commonKeychain, path).slice(0, 64);
   }
 
   async parseTransaction(params: NearParseTransactionOptions): Promise<NearParsedTransaction> {

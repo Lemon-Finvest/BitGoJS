@@ -19,6 +19,7 @@ import {
   AvaxERC20Token,
 } from '@bitgo/statics';
 import { EnvironmentName, Environments, KrsProvider } from '@bitgo/sdk-core';
+import BigNumber from 'bignumber.js';
 
 export interface Tokens {
   bitcoin: {
@@ -107,6 +108,19 @@ export const ethGasConfigs = {
   defaultGasLimitTokenSend: 1000000, // Default gas limit we set for token send
   minimumGasLimit: 30000,    // minimum gas limit a user can set for a send
   maximumGasLimit: 20000000, // Customers cannot set gas limits beyond this amount
+};
+
+export const NearGasConfigs = {
+  transfer_cost: {
+    send_sir: new BigNumber(115123062500),
+    send_not_sir: new BigNumber(115123062500),
+    execution: new BigNumber(115123062500),
+  },
+  action_receipt_creation_config: {
+    send_sir: new BigNumber(108059500000),
+    send_not_sir: new BigNumber(108059500000),
+    execution: new BigNumber(108059500000),
+  },
 };
 // Get the list of Stellar tokens from statics and format it properly
 const formattedStellarTokens = coins.reduce((acc: StellarTokenConfig[], coin) => {
